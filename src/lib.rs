@@ -43,6 +43,10 @@ impl<T> Pool<T> {
         }
     }
 
+    pub fn id(&self) -> *const () {
+        self.id.deref() as *const ()
+    }
+
     pub fn insert(&mut self, value: T) -> Handle<T> {
         let mut next_vacant = if let Some(next_vacant) = self.next_vacant {
             next_vacant
@@ -65,11 +69,27 @@ impl<T> Pool<T> {
         }
     }
 
-    pub fn get(&self, handle: Handle<T>) -> Option<&T> {
+    pub fn remove(&mut self, mut h: Handle<T>) -> bool {
+        if h.pool_id != self.id() {
+            panic!("pool id not matched");
+        }
+        unsafe {
+            match h.ptr.as_mut() {
+                Entry::Vacant(_) => false,
+                _ => {
+                    *h.ptr.as_mut() = Entry::Vacant(self.next_vacant);
+                    self.next_vacant = Some(h.ptr);
+                    true
+                }
+            }
+        }
+    }
+
+    pub fn get(&self, h: Handle<T>) -> Option<&T> {
         unimplemented!()
     }
 
-    pub fn get_mut(&mut self, handle: Handle<T>) -> Option<&mut T> {
+    pub fn get_mut(&mut self, h: Handle<T>) -> Option<&mut T> {
         unimplemented!()
     }
 }
