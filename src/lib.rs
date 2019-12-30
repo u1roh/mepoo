@@ -1,32 +1,20 @@
 use std::ops::Deref;
 use std::ptr::NonNull;
 
+#[derive(Debug)]
 enum Entry<T> {
     Vacant(Option<NonNull<Self>>),
     Occupied(T),
 }
 
-impl<T> Entry<T> {
-    fn new_block(
-        capacity: usize,
-        mut next_vacant: Option<NonNull<Self>>,
-    ) -> (NonNull<Self>, Box<[Self]>) {
-        let mut block = Vec::with_capacity(capacity);
-        for _ in 0..capacity {
-            block.push(Entry::Vacant(next_vacant));
-            next_vacant = NonNull::new(block.last_mut().unwrap() as *mut _);
-        }
-        (next_vacant.unwrap(), block.into_boxed_slice())
-    }
-}
-
+#[derive(Debug)]
 pub struct Pool<T> {
     blocks: Vec<Box<[Entry<T>]>>,
-    next_vacant: Option<NonNull<Entry<T>>>,
+    vacant: Option<NonNull<Entry<T>>>,
     id: Box<()>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Handle<T> {
     ptr: NonNull<Entry<T>>,
     pool_id: *const (),
@@ -38,7 +26,7 @@ impl<T> Pool<T> {
     pub fn new() -> Self {
         Self {
             blocks: Vec::new(),
-            next_vacant: None,
+            vacant: None,
             id: Box::new(()),
         }
     }
@@ -47,38 +35,46 @@ impl<T> Pool<T> {
         self.id.deref() as *const ()
     }
 
+    fn new_block() -> (NonNull<Entry<T>>, Box<[Entry<T>]>) {
+        let mut block = Vec::with_capacity(Self::BLOCK_SIZE);
+        let mut vacant = None;
+        for _ in 0..Self::BLOCK_SIZE {
+            block.push(Entry::Vacant(vacant));
+            vacant = NonNull::new(block.last_mut().unwrap() as *mut _);
+        }
+        (vacant.unwrap(), block.into_boxed_slice())
+    }
+
     pub fn insert(&mut self, value: T) -> Handle<T> {
-        let mut next_vacant = if let Some(next_vacant) = self.next_vacant {
-            next_vacant
+        let mut vacant = if let Some(vacant) = self.vacant {
+            vacant
         } else {
-            let (ptr, block) = Entry::new_block(Self::BLOCK_SIZE, None);
+            let (ptr, block) = Self::new_block();
             self.blocks.push(block);
-            self.next_vacant = Some(ptr);
+            self.vacant = Some(ptr);
             ptr
         };
         unsafe {
-            self.next_vacant = match next_vacant.as_ref() {
+            self.vacant = match vacant.as_ref() {
                 Entry::Vacant(ptr) => *ptr,
                 _ => panic!("error"),
             };
-            *next_vacant.as_mut() = Entry::Occupied(value);
+            *vacant.as_mut() = Entry::Occupied(value);
         }
         Handle {
-            ptr: next_vacant,
+            ptr: vacant,
             pool_id: self.id.deref() as *const (),
         }
     }
 
     pub fn remove(&mut self, mut h: Handle<T>) -> bool {
-        if h.pool_id != self.id() {
-            panic!("pool id not matched");
-        }
+        assert!(h.pool_id == self.id());
         unsafe {
             match h.ptr.as_mut() {
                 Entry::Vacant(_) => false,
                 _ => {
-                    *h.ptr.as_mut() = Entry::Vacant(self.next_vacant);
-                    self.next_vacant = Some(h.ptr);
+                    *h.ptr.as_mut() = Entry::Vacant(self.vacant);
+                    self.vacant = Some(h.ptr);
                     true
                 }
             }
@@ -86,17 +82,38 @@ impl<T> Pool<T> {
     }
 
     pub fn get(&self, h: Handle<T>) -> Option<&T> {
-        unimplemented!()
+        assert!(h.pool_id == self.id());
+        unsafe {
+            match &*h.ptr.as_ptr() {
+                Entry::Occupied(value) => Some(value),
+                _ => None,
+            }
+        }
     }
 
     pub fn get_mut(&mut self, h: Handle<T>) -> Option<&mut T> {
-        unimplemented!()
+        assert!(h.pool_id == self.id());
+        unsafe {
+            match &mut *h.ptr.as_ptr() {
+                Entry::Occupied(value) => Some(value),
+                _ => None,
+            }
+        }
     }
 }
 
+#[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn it_works() {
-        assert_eq!(2 + 2, 4);
+        let mut pool = Pool::new();
+        let h = pool.insert(3.14);
+        assert_eq!(*pool.get(h).unwrap(), 3.14);
+        *pool.get_mut(h).unwrap() = 2.7;
+        assert_eq!(*pool.get(h).unwrap(), 2.7);
+        assert!(pool.remove(h));
+        assert!(pool.get(h).is_none());
     }
 }
