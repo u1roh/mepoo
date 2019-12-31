@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::ptr::NonNull;
 
 #[derive(Debug)]
-enum Entry<T> {
+pub enum Entry<T> {
     Vacant(Option<NonNull<Self>>),
     Occupied(T),
 }
@@ -15,10 +15,11 @@ pub struct Pool<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Handle<T> {
-    ptr: NonNull<Entry<T>>,
+pub struct __Handle<Ptr> {
+    ptr: Ptr,
     pool_id: *const (),
 }
+pub type Handle<T> = __Handle<NonNull<Entry<T>>>;
 
 impl<T> Pool<T> {
     const BLOCK_SIZE: usize = 256;
@@ -102,12 +103,18 @@ impl<T> Pool<T> {
     }
 }
 
+impl<T> std::default::Default for Pool<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn it_works() {
+    fn simple_insert_and_remove() {
         let mut pool = Pool::new();
         let h = pool.insert(3.14);
         assert_eq!(*pool.get(h).unwrap(), 3.14);
@@ -115,5 +122,46 @@ mod tests {
         assert_eq!(*pool.get(h).unwrap(), 2.7);
         assert!(pool.remove(h));
         assert!(pool.get(h).is_none());
+    }
+
+    #[test]
+    fn insert_many() {
+        let mut pool = Pool::new();
+        let mut handles = Vec::new();
+        for i in 0..1024 {
+            handles.push(pool.insert(i));
+        }
+        assert_eq!(pool.blocks.len(), 4);
+        assert_eq!(10, *pool.get(handles[10]).unwrap());
+        assert_eq!(20, *pool.get(handles[20]).unwrap());
+        assert_eq!(300, *pool.get(handles[300]).unwrap());
+        assert!(pool.remove(handles[30]));
+        assert!(pool.get(handles[30]).is_none());
+        let h = pool.insert(1111);
+        assert_eq!(h, handles[30]);
+        assert_eq!(pool.blocks.len(), 4);
+        pool.insert(2222);
+        assert_eq!(pool.blocks.len(), 5);
+    }
+
+    struct Node {
+        next: Option<Handle<Node>>,
+        prev: Option<Handle<Node>>,
+    }
+
+    #[test]
+    fn graph() {
+        let mut pool = Pool::new();
+        let h1 = pool.insert(Node {
+            next: None,
+            prev: None,
+        });
+        let h2 = pool.insert(Node {
+            next: None,
+            prev: None,
+        });
+        assert_ne!(h1, h2);
+        pool.get_mut(h1).unwrap().next = Some(h2);
+        pool.get_mut(h2).unwrap().prev = Some(h1);
     }
 }
