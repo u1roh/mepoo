@@ -7,6 +7,7 @@ enum Entry<T> {
     Occupied(T),
 }
 
+/// A memory pool
 #[derive(Debug)]
 pub struct Pool<T> {
     blocks: Vec<Box<[Entry<T>]>>,
@@ -90,14 +91,16 @@ impl<T> Pool<T> {
         }
     }
 
-    pub fn get_mut(&mut self, h: Handle<T>) -> Option<&mut T> {
+    pub unsafe fn get_unsafe(&self, h: Handle<T>) -> Option<&mut T> {
         assert!(h.pool_id == self.id());
-        unsafe {
-            match &mut *h.ptr.as_ptr() {
-                Entry::Occupied(value) => Some(value),
-                _ => None,
-            }
+        match &mut *h.ptr.as_ptr() {
+            Entry::Occupied(value) => Some(value),
+            _ => None,
         }
+    }
+
+    pub fn get_mut(&mut self, h: Handle<T>) -> Option<&mut T> {
+        unsafe { self.get_unsafe(h) }
     }
 }
 
@@ -201,6 +204,36 @@ mod tests {
         assert_ne!(h1, h2);
         pool.get_mut(h1).unwrap().next = Some(h2);
         pool.get_mut(h2).unwrap().prev = Some(h1);
+
+        let mut map = std::collections::HashSet::new();
+        map.insert(h1);
+        map.insert(h2);
+
+        let mut tree = std::collections::BTreeSet::new();
+        tree.insert(h1);
+        tree.insert(h2);
+    }
+    struct Node2<'a> {
+        next: Option<&'a Node2<'a>>,
+        prev: Option<&'a Node2<'a>>,
+    }
+
+    #[test]
+    fn graph2() {
+        let mut pool = Pool::new();
+        let h1 = pool.insert(Node2 {
+            next: None,
+            prev: None,
+        });
+        let h2 = pool.insert(Node2 {
+            next: None,
+            prev: None,
+        });
+        assert_ne!(h1, h2);
+        unsafe {
+            pool.get_unsafe(h1).unwrap().next = pool.get(h2);
+            pool.get_unsafe(h2).unwrap().prev = pool.get(h1);
+        }
 
         let mut map = std::collections::HashSet::new();
         map.insert(h1);
