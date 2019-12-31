@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::ptr::NonNull;
 
 #[derive(Debug)]
-pub enum Entry<T> {
+enum Entry<T> {
     Vacant(Option<NonNull<Self>>),
     Occupied(T),
 }
@@ -14,12 +14,10 @@ pub struct Pool<T> {
     id: Box<()>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct __Handle<Ptr> {
-    ptr: Ptr,
+pub struct Handle<T> {
+    ptr: NonNull<Entry<T>>,
     pool_id: *const (),
 }
-pub type Handle<T> = __Handle<NonNull<Entry<T>>>;
 
 impl<T> Pool<T> {
     const BLOCK_SIZE: usize = 256;
@@ -109,6 +107,46 @@ impl<T> std::default::Default for Pool<T> {
     }
 }
 
+impl<T> std::fmt::Debug for Handle<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "Handle {{ ptr: {:?}, pool_id: {:?} }}",
+            self.ptr, self.pool_id
+        )
+    }
+}
+impl<T> Clone for Handle<T> {
+    fn clone(&self) -> Self {
+        Self {
+            ptr: self.ptr,
+            pool_id: self.pool_id,
+        }
+    }
+}
+impl<T> PartialEq for Handle<T> {
+    fn eq(&self, rhs: &Self) -> bool {
+        self.ptr == rhs.ptr && self.pool_id == rhs.pool_id
+    }
+}
+impl<T> std::hash::Hash for Handle<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.ptr.hash(state)
+    }
+}
+impl<T> PartialOrd for Handle<T> {
+    fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
+        self.ptr.partial_cmp(&rhs.ptr)
+    }
+}
+impl<T> Ord for Handle<T> {
+    fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
+        self.ptr.cmp(&rhs.ptr)
+    }
+}
+impl<T> Copy for Handle<T> {}
+impl<T> Eq for Handle<T> {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,5 +201,13 @@ mod tests {
         assert_ne!(h1, h2);
         pool.get_mut(h1).unwrap().next = Some(h2);
         pool.get_mut(h2).unwrap().prev = Some(h1);
+
+        let mut map = std::collections::HashSet::new();
+        map.insert(h1);
+        map.insert(h2);
+
+        let mut tree = std::collections::BTreeSet::new();
+        tree.insert(h1);
+        tree.insert(h2);
     }
 }
