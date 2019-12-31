@@ -7,7 +7,8 @@ enum Entry<T> {
     Occupied(T),
 }
 
-/// A memory pool
+/// A memory pool of objects of type `T`.
+/// This is similar to typed_arena excepting that `Pool` can deallocate each object individually by `remove` method.
 #[derive(Debug)]
 pub struct Pool<T> {
     blocks: Vec<Box<[Entry<T>]>>,
@@ -213,6 +214,7 @@ mod tests {
         tree.insert(h1);
         tree.insert(h2);
     }
+
     struct Node2<'a> {
         next: Option<&'a Node2<'a>>,
         prev: Option<&'a Node2<'a>>,
@@ -242,5 +244,27 @@ mod tests {
         let mut tree = std::collections::BTreeSet::new();
         tree.insert(h1);
         tree.insert(h2);
+    }
+
+    use std::cell::Cell;
+
+    struct Node3<'a> {
+        other: Cell<Option<&'a Node3<'a>>>,
+    }
+
+    #[test]
+    fn graph3() {
+        let mut pool = Pool::new();
+
+        let a = pool.insert(Node3 {
+            other: Cell::new(None),
+        });
+        let b = pool.insert(Node3 {
+            other: Cell::new(None),
+        });
+
+        pool.get(a).unwrap().other.set(pool.get(b));
+        pool.get(b).unwrap().other.set(pool.get(a));
+        //pool.remove(a);
     }
 }
