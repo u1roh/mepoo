@@ -16,9 +16,61 @@ pub struct Pool<T> {
     id: Box<()>,
 }
 
-pub struct Handle<T> {
+pub struct Ptr<T> {
     ptr: NonNull<Entry<T>>,
     pool_id: *const (),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Ref<'a, T> {
+    value: &'a T,
+    entry: &'a Entry<T>,
+    pool_id: *const (),
+}
+impl<'a, T> Ref<'a, T> {
+    pub fn get(&self) -> &'a T {
+        self.value
+    }
+}
+impl<'a, T> Deref for Ref<'a, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.value
+    }
+}
+impl<'a, T> From<Ref<'a, T>> for Ptr<T> {
+    fn from(src: Ref<'a, T>) -> Self {
+        Ptr {
+            ptr: src.entry.into(),
+            pool_id: src.pool_id,
+        }
+    }
+}
+
+impl<T> Ptr<T> {
+    pub const fn dangling() -> Self {
+        Ptr {
+            ptr: NonNull::dangling(),
+            pool_id: std::ptr::null(),
+        }
+    }
+    pub unsafe fn as_ref(&self) -> Option<Ref<T>> {
+        let entry = &*self.ptr.as_ptr();
+        match entry {
+            Entry::Occupied(value) => Some(Ref {
+                value,
+                entry,
+                pool_id: self.pool_id,
+            }),
+            _ => None,
+        }
+    }
+    pub unsafe fn as_mut<'a>(&self) -> Option<&'a mut T> {
+        match &mut *self.ptr.as_ptr() {
+            Entry::Occupied(value) => Some(value),
+            _ => None,
+        }
+    }
 }
 
 impl<T> Pool<T> {
@@ -46,7 +98,7 @@ impl<T> Pool<T> {
         (vacant.unwrap(), block.into_boxed_slice())
     }
 
-    pub fn insert(&mut self, value: T) -> Handle<T> {
+    pub fn insert(&mut self, value: T) -> Ptr<T> {
         let mut vacant = if let Some(vacant) = self.vacant {
             vacant
         } else {
@@ -62,13 +114,13 @@ impl<T> Pool<T> {
             };
             *vacant.as_mut() = Entry::Occupied(value);
         }
-        Handle {
+        Ptr {
             ptr: vacant,
             pool_id: self.id.deref() as *const (),
         }
     }
 
-    pub fn remove(&mut self, mut h: Handle<T>) -> bool {
+    pub fn remove(&mut self, mut h: Ptr<T>) -> bool {
         assert!(h.pool_id == self.id());
         unsafe {
             match h.ptr.as_mut() {
@@ -82,25 +134,17 @@ impl<T> Pool<T> {
         }
     }
 
-    pub fn get(&self, h: Handle<T>) -> Option<&T> {
+    pub fn get<'a>(&self, h: &'a Ptr<T>) -> Option<Ref<'a, T>> {
         assert!(h.pool_id == self.id());
-        unsafe {
-            match &*h.ptr.as_ptr() {
-                Entry::Occupied(value) => Some(value),
-                _ => None,
-            }
-        }
+        unsafe { h.as_ref() }
     }
 
-    pub unsafe fn get_unsafe(&self, h: Handle<T>) -> Option<&mut T> {
+    pub unsafe fn get_unsafe(&self, h: Ptr<T>) -> Option<&mut T> {
         assert!(h.pool_id == self.id());
-        match &mut *h.ptr.as_ptr() {
-            Entry::Occupied(value) => Some(value),
-            _ => None,
-        }
+        h.as_mut()
     }
 
-    pub fn get_mut(&mut self, h: Handle<T>) -> Option<&mut T> {
+    pub fn get_mut(&mut self, h: Ptr<T>) -> Option<&mut T> {
         unsafe { self.get_unsafe(h) }
     }
 }
@@ -111,45 +155,45 @@ impl<T> std::default::Default for Pool<T> {
     }
 }
 
-impl<T> std::fmt::Debug for Handle<T> {
+impl<T> std::fmt::Debug for Ptr<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(
             f,
-            "Handle {{ ptr: {:?}, pool_id: {:?} }}",
+            "Ptr {{ ptr: {:?}, pool_id: {:?} }}",
             self.ptr, self.pool_id
         )
     }
 }
-impl<T> Clone for Handle<T> {
+impl<T> Clone for Ptr<T> {
     fn clone(&self) -> Self {
-        Self {
+        Ptr {
             ptr: self.ptr,
             pool_id: self.pool_id,
         }
     }
 }
-impl<T> PartialEq for Handle<T> {
+impl<T> PartialEq for Ptr<T> {
     fn eq(&self, rhs: &Self) -> bool {
         self.ptr == rhs.ptr && self.pool_id == rhs.pool_id
     }
 }
-impl<T> std::hash::Hash for Handle<T> {
+impl<T> std::hash::Hash for Ptr<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.ptr.hash(state)
     }
 }
-impl<T> PartialOrd for Handle<T> {
+impl<T> PartialOrd for Ptr<T> {
     fn partial_cmp(&self, rhs: &Self) -> Option<std::cmp::Ordering> {
         self.ptr.partial_cmp(&rhs.ptr)
     }
 }
-impl<T> Ord for Handle<T> {
+impl<T> Ord for Ptr<T> {
     fn cmp(&self, rhs: &Self) -> std::cmp::Ordering {
         self.ptr.cmp(&rhs.ptr)
     }
 }
-impl<T> Copy for Handle<T> {}
-impl<T> Eq for Handle<T> {}
+impl<T> Copy for Ptr<T> {}
+impl<T> Eq for Ptr<T> {}
 
 #[cfg(test)]
 mod tests {
@@ -158,37 +202,37 @@ mod tests {
     #[test]
     fn simple_insert_and_remove() {
         let mut pool = Pool::new();
-        let h = pool.insert(3.14);
-        assert_eq!(*pool.get(h).unwrap(), 3.14);
-        *pool.get_mut(h).unwrap() = 2.7;
-        assert_eq!(*pool.get(h).unwrap(), 2.7);
-        assert!(pool.remove(h));
-        assert!(pool.get(h).is_none());
+        let ptr = pool.insert(3.14);
+        assert_eq!(*pool.get(&ptr).unwrap(), 3.14);
+        *pool.get_mut(ptr).unwrap() = 2.7;
+        assert_eq!(*pool.get(&ptr).unwrap(), 2.7);
+        assert!(pool.remove(ptr));
+        assert!(pool.get(&ptr).is_none());
     }
 
     #[test]
     fn insert_many() {
         let mut pool = Pool::new();
-        let mut handles = Vec::new();
+        let mut ptrs = Vec::new();
         for i in 0..1024 {
-            handles.push(pool.insert(i));
+            ptrs.push(pool.insert(i));
         }
         assert_eq!(pool.blocks.len(), 4);
-        assert_eq!(10, *pool.get(handles[10]).unwrap());
-        assert_eq!(20, *pool.get(handles[20]).unwrap());
-        assert_eq!(300, *pool.get(handles[300]).unwrap());
-        assert!(pool.remove(handles[30]));
-        assert!(pool.get(handles[30]).is_none());
+        assert_eq!(10, *pool.get(&ptrs[10]).unwrap());
+        assert_eq!(20, *pool.get(&ptrs[20]).unwrap());
+        assert_eq!(300, *pool.get(&ptrs[300]).unwrap());
+        assert!(pool.remove(ptrs[30]));
+        assert!(pool.get(&ptrs[30]).is_none());
         let h = pool.insert(1111);
-        assert_eq!(h, handles[30]);
+        assert_eq!(h, ptrs[30]);
         assert_eq!(pool.blocks.len(), 4);
         pool.insert(2222);
         assert_eq!(pool.blocks.len(), 5);
     }
 
     struct Node {
-        next: Option<Handle<Node>>,
-        prev: Option<Handle<Node>>,
+        next: Option<Ptr<Node>>,
+        prev: Option<Ptr<Node>>,
     }
 
     #[test]
@@ -233,8 +277,8 @@ mod tests {
         });
         assert_ne!(h1, h2);
         unsafe {
-            pool.get_unsafe(h1).unwrap().next = pool.get(h2);
-            pool.get_unsafe(h2).unwrap().prev = pool.get(h1);
+            pool.get_unsafe(h1).unwrap().next = pool.get(&h2).as_ref().map(Deref::deref);
+            pool.get_unsafe(h2).unwrap().prev = pool.get(&h1).as_ref().map(Deref::deref);
         }
 
         let mut map = std::collections::HashSet::new();
@@ -246,6 +290,7 @@ mod tests {
         tree.insert(h2);
     }
 
+    /*
     use std::cell::Cell;
 
     struct Node3<'a> {
@@ -263,8 +308,13 @@ mod tests {
             other: Cell::new(None),
         });
 
-        pool.get(a).unwrap().other.set(pool.get(b));
-        pool.get(b).unwrap().other.set(pool.get(a));
+        let r = pool.get(b).as_ref().map(Deref::deref);
+        pool.get(a).unwrap().other.set(r);
+        pool.get(b)
+            .unwrap()
+            .other
+            .set(pool.get(a).as_ref().map(Deref::deref));
         //pool.remove(a);
     }
+    */
 }
