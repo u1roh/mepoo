@@ -134,9 +134,9 @@ impl<T> Pool<T> {
         }
     }
 
-    pub fn get<'a>(&'a self, h: &Ptr<T>) -> Option<Ref<'a, T>> {
-        assert!(h.pool_id == self.id());
-        unsafe { h.as_ref() }
+    pub fn get(&self, p: Ptr<T>) -> Option<Ref<T>> {
+        assert!(p.pool_id == self.id());
+        unsafe { p.as_ref() }
     }
 
     pub unsafe fn get_unsafe<'a>(&self, h: &'a Ptr<T>) -> Option<&'a mut T> {
