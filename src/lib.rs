@@ -54,7 +54,7 @@ impl<T> Ptr<T> {
             pool_id: std::ptr::null(),
         }
     }
-    pub unsafe fn as_ref(&self) -> Option<Ref<T>> {
+    pub unsafe fn as_ref<'a>(&self) -> Option<Ref<'a, T>> {
         let entry = &*self.ptr.as_ptr();
         match entry {
             Entry::Occupied(value) => Some(Ref {
@@ -134,7 +134,7 @@ impl<T> Pool<T> {
         }
     }
 
-    pub fn get<'a>(&self, h: &'a Ptr<T>) -> Option<Ref<'a, T>> {
+    pub fn get<'a>(&'a self, h: &Ptr<T>) -> Option<Ref<'a, T>> {
         assert!(h.pool_id == self.id());
         unsafe { h.as_ref() }
     }
