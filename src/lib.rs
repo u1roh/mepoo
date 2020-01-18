@@ -74,7 +74,7 @@ impl<T> Ptr<T> {
 }
 
 impl<T> Pool<T> {
-    const BLOCK_SIZE: usize = 256;
+    const BLOCK_SIZE: usize = 1024;
 
     pub fn new() -> Self {
         Self {
@@ -82,6 +82,10 @@ impl<T> Pool<T> {
             vacant: None,
             id: Box::new(()),
         }
+    }
+
+    pub fn block_size(&self) -> usize {
+        Self::BLOCK_SIZE
     }
 
     pub fn id(&self) -> *const () {
@@ -214,7 +218,7 @@ mod tests {
     fn insert_many() {
         let mut pool = Pool::new();
         let mut ptrs = Vec::new();
-        for i in 0..1024 {
+        for i in 0..4 * pool.block_size() {
             ptrs.push(pool.insert(i));
         }
         assert_eq!(pool.blocks.len(), 4);
