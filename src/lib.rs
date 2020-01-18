@@ -65,7 +65,7 @@ impl<T> Ptr<T> {
             _ => None,
         }
     }
-    pub unsafe fn as_mut(&self) -> Option<&mut T> {
+    pub unsafe fn as_mut<'a>(&self) -> Option<&'a mut T> {
         match &mut *self.ptr.as_ptr() {
             Entry::Occupied(value) => Some(value),
             _ => None,
@@ -139,13 +139,13 @@ impl<T> Pool<T> {
         unsafe { p.as_ref() }
     }
 
-    pub unsafe fn get_unsafe<'a>(&self, h: &'a Ptr<T>) -> Option<&'a mut T> {
-        assert!(h.pool_id == self.id());
-        h.as_mut()
+    pub unsafe fn get_unsafe(&self, p: Ptr<T>) -> Option<&mut T> {
+        assert!(p.pool_id == self.id());
+        p.as_mut()
     }
 
-    pub fn get_mut<'a>(&mut self, h: &'a Ptr<T>) -> Option<&'a mut T> {
-        unsafe { self.get_unsafe(h) }
+    pub fn get_mut(&mut self, p: Ptr<T>) -> Option<&mut T> {
+        unsafe { self.get_unsafe(p) }
     }
 }
 
@@ -203,11 +203,11 @@ mod tests {
     fn simple_insert_and_remove() {
         let mut pool = Pool::new();
         let ptr = pool.insert(3.14);
-        assert_eq!(*pool.get(&ptr).unwrap(), 3.14);
-        *pool.get_mut(&ptr).unwrap() = 2.7;
-        assert_eq!(*pool.get(&ptr).unwrap(), 2.7);
+        assert_eq!(*pool.get(ptr).unwrap(), 3.14);
+        *pool.get_mut(ptr).unwrap() = 2.7;
+        assert_eq!(*pool.get(ptr).unwrap(), 2.7);
         assert!(pool.remove(ptr));
-        assert!(pool.get(&ptr).is_none());
+        assert!(pool.get(ptr).is_none());
     }
 
     #[test]
@@ -218,11 +218,11 @@ mod tests {
             ptrs.push(pool.insert(i));
         }
         assert_eq!(pool.blocks.len(), 4);
-        assert_eq!(10, *pool.get(&ptrs[10]).unwrap());
-        assert_eq!(20, *pool.get(&ptrs[20]).unwrap());
-        assert_eq!(300, *pool.get(&ptrs[300]).unwrap());
+        assert_eq!(10, *pool.get(ptrs[10]).unwrap());
+        assert_eq!(20, *pool.get(ptrs[20]).unwrap());
+        assert_eq!(300, *pool.get(ptrs[300]).unwrap());
         assert!(pool.remove(ptrs[30]));
-        assert!(pool.get(&ptrs[30]).is_none());
+        assert!(pool.get(ptrs[30]).is_none());
         let h = pool.insert(1111);
         assert_eq!(h, ptrs[30]);
         assert_eq!(pool.blocks.len(), 4);
@@ -247,8 +247,8 @@ mod tests {
             prev: None,
         });
         assert_ne!(h1, h2);
-        pool.get_mut(&h1).unwrap().next = Some(h2);
-        pool.get_mut(&h2).unwrap().prev = Some(h1);
+        pool.get_mut(h1).unwrap().next = Some(h2);
+        pool.get_mut(h2).unwrap().prev = Some(h1);
 
         let mut map = std::collections::HashSet::new();
         map.insert(h1);
@@ -277,8 +277,8 @@ mod tests {
         });
         assert_ne!(h1, h2);
         unsafe {
-            pool.get_unsafe(&h1).unwrap().next = pool.get(&h2).as_ref().map(Deref::deref);
-            pool.get_unsafe(&h2).unwrap().prev = pool.get(&h1).as_ref().map(Deref::deref);
+            pool.get_unsafe(h1).unwrap().next = pool.get(h2).as_ref().map(Deref::deref);
+            pool.get_unsafe(h2).unwrap().prev = pool.get(h1).as_ref().map(Deref::deref);
         }
 
         let mut map = std::collections::HashSet::new();
