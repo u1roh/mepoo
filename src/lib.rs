@@ -1,6 +1,37 @@
 use std::ops::Deref;
 use std::ptr::NonNull;
 
+mod id {
+    use lazy_static::lazy_static;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    lazy_static! {
+        static ref COUNTER: AtomicUsize = AtomicUsize::new(0);
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    pub struct PoolId(usize);
+    impl PoolId {
+        pub fn new() -> Self {
+            Self(COUNTER.fetch_add(1, Ordering::Relaxed))
+        }
+    }
+
+    #[test]
+    fn test() {
+        let id0 = PoolId::new();
+        assert_eq!(id0.0, 0);
+
+        let id1 = PoolId::new();
+        assert_eq!(id1.0, 1);
+
+        let id2 = PoolId::new();
+        assert_eq!(id2.0, 2);
+    }
+}
+
+pub use id::PoolId;
+
 #[derive(Debug)]
 enum Entry<T> {
     Vacant(Option<NonNull<Self>>),
@@ -13,19 +44,19 @@ enum Entry<T> {
 pub struct Pool<T> {
     blocks: Vec<Box<[Entry<T>]>>,
     vacant: Option<NonNull<Entry<T>>>,
-    id: Box<()>,
+    id: PoolId,
 }
 
 pub struct Ptr<T> {
     ptr: NonNull<Entry<T>>,
-    pool_id: *const (),
+    pool_id: PoolId,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Ref<'a, T> {
     value: &'a T,
     entry: &'a Entry<T>,
-    pool_id: *const (),
+    pool_id: PoolId,
 }
 impl<'a, T> Ref<'a, T> {
     pub fn get(&self) -> &'a T {
@@ -48,12 +79,14 @@ impl<'a, T> From<Ref<'a, T>> for Ptr<T> {
 }
 
 impl<T> Ptr<T> {
+    /*
     pub const fn dangling() -> Self {
         Ptr {
             ptr: NonNull::dangling(),
             pool_id: std::ptr::null(),
         }
     }
+    */
     pub unsafe fn as_ref<'a>(&self) -> Option<Ref<'a, T>> {
         let entry = &*self.ptr.as_ptr();
         match entry {
@@ -80,7 +113,7 @@ impl<T> Pool<T> {
         Self {
             blocks: Vec::new(),
             vacant: None,
-            id: Box::new(()),
+            id: PoolId::new(),
         }
     }
 
@@ -88,8 +121,8 @@ impl<T> Pool<T> {
         Self::BLOCK_SIZE
     }
 
-    pub fn id(&self) -> *const () {
-        self.id.deref() as *const ()
+    pub fn id(&self) -> PoolId {
+        self.id
     }
 
     fn new_block() -> (NonNull<Entry<T>>, Box<[Entry<T>]>) {
@@ -120,7 +153,7 @@ impl<T> Pool<T> {
         }
         Ptr {
             ptr: vacant,
-            pool_id: self.id.deref() as *const (),
+            pool_id: self.id,
         }
     }
 
