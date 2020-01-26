@@ -12,7 +12,7 @@ mod id {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
     pub struct PoolId(usize);
     impl PoolId {
-        pub fn new() -> Self {
+        pub(crate) fn gen() -> Self {
             Self(COUNTER.fetch_add(1, Ordering::Relaxed))
         }
         pub(crate) const ZERO: Self = Self(0);
@@ -23,7 +23,7 @@ mod id {
         use std::collections::HashSet;
         let mut set = HashSet::new();
         for _ in 0..100 {
-            let id = PoolId::new();
+            let id = PoolId::gen();
             assert!(id.0 > 0);
             assert!(set.insert(id));
         }
@@ -109,7 +109,7 @@ impl<T> Pool<T> {
         Self {
             blocks: Vec::new(),
             vacant: None,
-            id: PoolId::new(),
+            id: PoolId::gen(),
         }
     }
 
