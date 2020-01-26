@@ -79,14 +79,6 @@ impl<'a, T> From<Ref<'a, T>> for Ptr<T> {
 }
 
 impl<T> Ptr<T> {
-    /*
-    pub const fn dangling() -> Self {
-        Ptr {
-            ptr: NonNull::dangling(),
-            pool_id: std::ptr::null(),
-        }
-    }
-    */
     pub unsafe fn as_ref<'a>(&self) -> Option<Ref<'a, T>> {
         let entry = &*self.ptr.as_ptr();
         match entry {
