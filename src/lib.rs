@@ -127,7 +127,7 @@ impl<T> Pool<T> {
         (vacant.unwrap(), block.into_boxed_slice())
     }
 
-    pub fn insert(&mut self, value: T) -> Ptr<T> {
+    pub fn alloc(&mut self, value: T) -> Ptr<T> {
         let mut vacant = if let Some(vacant) = self.vacant {
             vacant
         } else {
@@ -149,7 +149,7 @@ impl<T> Pool<T> {
         }
     }
 
-    pub fn remove(&mut self, mut h: Ptr<T>) -> bool {
+    pub fn free(&mut self, mut h: Ptr<T>) -> bool {
         assert!(h.pool_id == self.id());
         unsafe {
             match h.ptr.as_mut() {
@@ -231,11 +231,11 @@ mod tests {
     #[test]
     fn simple_insert_and_remove() {
         let mut pool = Pool::new();
-        let ptr = pool.insert(3.14);
+        let ptr = pool.alloc(3.14);
         assert_eq!(*pool.get(ptr).unwrap(), 3.14);
         *pool.get_mut(ptr).unwrap() = 2.7;
         assert_eq!(*pool.get(ptr).unwrap(), 2.7);
-        assert!(pool.remove(ptr));
+        assert!(pool.free(ptr));
         assert!(pool.get(ptr).is_none());
     }
 
@@ -244,18 +244,18 @@ mod tests {
         let mut pool = Pool::new();
         let mut ptrs = Vec::new();
         for i in 0..4 * pool.block_size() {
-            ptrs.push(pool.insert(i));
+            ptrs.push(pool.alloc(i));
         }
         assert_eq!(pool.blocks.len(), 4);
         assert_eq!(10, *pool.get(ptrs[10]).unwrap());
         assert_eq!(20, *pool.get(ptrs[20]).unwrap());
         assert_eq!(300, *pool.get(ptrs[300]).unwrap());
-        assert!(pool.remove(ptrs[30]));
+        assert!(pool.free(ptrs[30]));
         assert!(pool.get(ptrs[30]).is_none());
-        let h = pool.insert(1111);
+        let h = pool.alloc(1111);
         assert_eq!(h, ptrs[30]);
         assert_eq!(pool.blocks.len(), 4);
-        pool.insert(2222);
+        pool.alloc(2222);
         assert_eq!(pool.blocks.len(), 5);
     }
 
@@ -267,11 +267,11 @@ mod tests {
     #[test]
     fn graph() {
         let mut pool = Pool::new();
-        let h1 = pool.insert(Node {
+        let h1 = pool.alloc(Node {
             next: None,
             prev: None,
         });
-        let h2 = pool.insert(Node {
+        let h2 = pool.alloc(Node {
             next: None,
             prev: None,
         });
@@ -296,11 +296,11 @@ mod tests {
     #[test]
     fn graph2() {
         let mut pool = Pool::new();
-        let h1 = pool.insert(Node2 {
+        let h1 = pool.alloc(Node2 {
             next: None,
             prev: None,
         });
-        let h2 = pool.insert(Node2 {
+        let h2 = pool.alloc(Node2 {
             next: None,
             prev: None,
         });
@@ -330,10 +330,10 @@ mod tests {
     fn graph3() {
         let mut pool = Pool::new();
 
-        let a = pool.insert(Node3 {
+        let a = pool.alloc(Node3 {
             other: Cell::new(None),
         });
-        let b = pool.insert(Node3 {
+        let b = pool.alloc(Node3 {
             other: Cell::new(None),
         });
 
@@ -343,7 +343,7 @@ mod tests {
             .unwrap()
             .other
             .set(pool.get(a).as_ref().map(Deref::deref));
-        //pool.remove(a);
+        //pool.free(a);
     }
     */
 }
