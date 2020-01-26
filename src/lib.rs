@@ -6,7 +6,7 @@ mod id {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     lazy_static! {
-        static ref COUNTER: AtomicUsize = AtomicUsize::new(0);
+        static ref COUNTER: AtomicUsize = AtomicUsize::new(1);
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -15,18 +15,18 @@ mod id {
         pub fn new() -> Self {
             Self(COUNTER.fetch_add(1, Ordering::Relaxed))
         }
+        pub(crate) const ZERO: Self = Self(0);
     }
 
     #[test]
     fn test() {
-        let id0 = PoolId::new();
-        assert_eq!(id0.0, 0);
-
-        let id1 = PoolId::new();
-        assert_eq!(id1.0, 1);
-
-        let id2 = PoolId::new();
-        assert_eq!(id2.0, 2);
+        use std::collections::HashSet;
+        let mut set = HashSet::new();
+        for _ in 0..100 {
+            let id = PoolId::new();
+            assert!(id.0 > 0);
+            assert!(set.insert(id));
+        }
     }
 }
 
@@ -39,7 +39,7 @@ enum Entry<T> {
 }
 
 /// A memory pool of objects of type `T`.
-/// This is similar to typed_arena excepting that `Pool` can deallocate each object individually by `remove` method.
+/// This is similar to typed_arena excepting that `Pool` can deallocate each object individually by `free` method.
 #[derive(Debug)]
 pub struct Pool<T> {
     blocks: Vec<Box<[Entry<T>]>>,
@@ -79,6 +79,10 @@ impl<'a, T> From<Ref<'a, T>> for Ptr<T> {
 }
 
 impl<T> Ptr<T> {
+    pub const DANGLING: Self = Self {
+        ptr: NonNull::dangling(),
+        pool_id: PoolId::ZERO,
+    };
     pub unsafe fn as_ref<'a>(&self) -> Option<Ref<'a, T>> {
         let entry = &*self.ptr.as_ptr();
         match entry {
